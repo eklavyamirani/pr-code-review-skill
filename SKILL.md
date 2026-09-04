@@ -3,7 +3,7 @@ name: pr-code-review
 description: Reviews a pull request in a container and renders an interactive review page with semantic zoom, syntax glosses, executed value tapes and predict-then-reveal probes. Use when the user wants to review a PR, compare branches, or explore code changes interactively.
 compatibility: Requires docker and bash on the host; everything else runs in the container
 metadata:
-  version: "3.0"
+  version: "3.1"
 ---
 
 # PR Code Review Skill
@@ -41,8 +41,20 @@ pr-review <repo> <base> <head> -o <out> -- \
 python3 scripts/render-review.py <out>/review.json -o <out>/review.html
 ```
 
-There is no cleanup step. The container is `--rm` and the host repo was mounted
-read-only, so a review leaves nothing behind but the output directory.
+The worktrees live at `<out>/.work` on the host and are bind-mounted to `/work`,
+so they survive between runs: step 1 builds them, and every later `-- cmd`
+invocation finds the same `/work/base` and `/work/pr`. Re-running step 1
+rebuilds them from scratch.
+
+The container is `--rm` and the host repo was mounted read-only, so the only
+thing a review leaves behind is that output directory. `cleanup-review.sh <out>`
+drops the worktrees and keeps the page; `--all` removes both.
+
+`--pr N` defaults its base to the remote's **default branch**, not to the head's
+first parent. Passing a base explicitly is still the safest option when the PR
+targets anything else — `pr-review <repo> --pr <N> <base-ref>`. A wrong base
+does not error; it produces a smaller review that looks entirely normal, so
+check the file count in step 1's output against the PR before annotating.
 
 Step 4 is the whole job. Everything else is mechanical.
 
@@ -86,6 +98,27 @@ write later hunks so they can lean on context established in earlier ones.
 One file usually yields two or three hunks. Six to ten hunks is a good page;
 past twelve, the PR should have been split.
 
+### A PR too large to annotate whole
+
+Machine-authored PRs routinely land at 100+ files. The page does not scale to
+that and should not try: annotating forty hunks produces something nobody
+finishes. Select instead, and say in the subtitle what you selected.
+
+Triage from `files.json` — it already carries per-file churn and a `docs` flag:
+
+```bash
+python3 -c 'import json;f=json.load(open("<out>/files.json"));
+print(sum(not x["docs"] for x in f),"non-doc");
+[print(x["changed"],x["file"]) for x in sorted(f,key=lambda x:-x["changed"])[:40] if not x["docs"]]'
+```
+
+Then follow the trust and data path rather than the churn ranking: what runs
+first, what it trusts, where secrets and credentials enter, what executes
+untrusted input, what deletes things. A 350-line test file is high churn and
+low review value; a 9-line change to a permission check is the opposite.
+Everything you leave out is fine — it is a review, not an audit — but the
+subtitle has to say so, or the page implies a completeness it does not have.
+
 ### Skip pure documentation
 
 Docs are a separate low-energy pass. Only annotate hunks where behaviour changes.
@@ -125,6 +158,12 @@ simulation only works if the values are real.
                  ["tmux 3.7c","<del>no such tag</del> — latest is 3.7b"]]}
 ```
 
+**The two columns are not the same.** The left one is escaped and renders as
+plain text — a `<code>` there appears on the page as the literal characters
+`<code>`. The right one is inserted as HTML, which is what `<ins>` and `<del>`
+need. `render-review.py` rejects markup in the left column, because this is
+invisible in the JSON and obvious only once you look at the page.
+
 Get values by actually running something: `set -x` traces mapped back to source
 lines, `--dry-run`, a probe in the `pr/` worktree, an upstream API for a pinned
 version. `<ins>` / `<del>` mark the before/after within a value.
@@ -147,7 +186,9 @@ Each hunk ends with a question the reader answers *before* pressing `r`.
 ```
 
 - `q` — answerable from the hunk plus earlier hunks. Not rhetorical, not a quiz
-  on trivia. The best ones make the reader re-read one specific line.
+  on trivia. The best ones make the reader re-read one specific line. Plain
+  text: it is escaped, so backticks and tags render literally. Only `answer`
+  takes HTML.
 - `verdict` — `bug` (defect), `think` (design question or misleading comment,
   no defect), `ok` (holds up; the claim checks out).
 - `answer` — say what is true, why, and the smallest fix. Include the fix as a
@@ -162,10 +203,17 @@ predicting and just press `r`.
 
 ## Verifying before handover
 
-- `make validate JSON=<json>` exits non-zero on structural problems.
-- Open the page and step through with `space` once. Check that glosses land on
-  the right tokens and no diff line renders with a stray `<span>`.
+- `make validate JSON=<json>` exits non-zero on structural problems: a gloss
+  matching no diff line, a probe without an answer, markup in a tape's left
+  column, a bad verdict.
+- Open the page and step through with `space` once. Validation cannot see
+  layout: check that glosses land on the right tokens, that no diff line
+  renders with a stray `<span>`, and that nothing in a tape wraps into
+  nonsense. Driving it headless works and is worth it — click each rail entry,
+  press `1`/`2`/`3`, and assert on the DOM.
 - Sanity-check the hunk order by reading only the `stage` chips top to bottom.
+- Check the file paths in the card headers against the tree. A wrong path
+  renders perfectly and is wrong on every level of the page at once.
 
 ## Reading it
 
@@ -183,3 +231,5 @@ back, answer them as a batch.
 - Tapes require being able to run the code; a PR in an unfamiliar stack gets
   weaker tapes, and `disc` must say so.
 - `localStorage` is per-browser. Moving machines loses progress.
+- The page pulls IBM Plex from Google Fonts. Offline it falls back to the
+  system stacks, which is a downgrade, not a failure.

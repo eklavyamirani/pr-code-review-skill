@@ -9,6 +9,8 @@ usage: pr-review <repo-path> (--pr N | <base-ref> <head-ref>) [-o outdir] [-- cm
 
   --pr N            fetch refs/pull/N/head from the repo's own origin
   -o outdir         where review.json / review.html land   (default ./.pr-review)
+                    the two worktrees live in <outdir>/.work and survive
+                    between runs, so `-- cmd` sees /work/base and /work/pr
   -- cmd...         run a command inside the container instead of the default
                     setup (e.g. -- trace-review.py --cmd 'zsh -lc true')
 
@@ -43,7 +45,7 @@ if [[ " ${ARGS[*]-} " == *" --pr "* && "$NET" == none ]]; then
   exit 1
 fi
 
-mkdir -p "$OUT"
+mkdir -p "$OUT/.work"
 OUT=$(cd "$OUT" && pwd)
 
 docker image inspect "$IMAGE" >/dev/null 2>&1 || {
@@ -51,10 +53,15 @@ docker image inspect "$IMAGE" >/dev/null 2>&1 || {
   docker build -q -t "$IMAGE" "$HERE" >/dev/null
 }
 
-exec docker run --rm -i ${TERM:+-t} \
+# -t only when stdin really is a terminal; a bare $TERM check breaks every
+# non-interactive caller (CI, agents, `| tee`) with "input device is not a TTY".
+TTY=(); [ -t 0 ] && [ -t 1 ] && TTY=(-t)
+
+exec docker run --rm -i "${TTY[@]}" \
   --network "$NET" \
   --security-opt no-new-privileges \
   --user "$(id -u):$(id -g)" \
   -v "$REPO:/repo:ro" \
   -v "$OUT:/out" \
+  -v "$OUT/.work:/work" \
   "$IMAGE" "${ARGS[@]}"
