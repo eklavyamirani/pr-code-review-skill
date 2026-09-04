@@ -22,6 +22,9 @@ else
   HEAD_REF=${2:?usage: setup-review.sh <base-ref> <head-ref> | --pr <N>}
 fi
 
+# /work is a bind mount that survives between container runs, so a second
+# invocation finds the previous workspace sitting there.
+rm -rf "$SRC" "$WORK/base" "$WORK/pr"
 git clone --quiet --shared --no-checkout /repo "$SRC"
 cd "$SRC"
 
@@ -30,9 +33,19 @@ if [ -n "${PR:-}" ]; then
   git remote set-url origin "$ORIGIN"
   git fetch --quiet origin "$PR_REF:pr$PR"
   HEAD_REF="pr$PR"
-  # A PR branch usually carries merged-in base commits; the interesting range
-  # starts at the merge base, not at whatever the branch happens to contain.
-  [ -n "$BASE" ] || BASE=$(git rev-parse "$HEAD_REF^") || BASE=origin/HEAD
+  # Default base is the remote's default branch, NOT "$HEAD_REF^". A PR branch
+  # usually carries merged-in base commits, so the interesting range starts at
+  # the merge base with the branch the PR targets. Using the head's first
+  # parent silently reviews only the last commit of the PR, which looks like a
+  # working review and is the most dangerous failure this tool can have.
+  if [ -z "$BASE" ]; then
+    BASE=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
+    [ -n "$BASE" ] || BASE=$(git remote show origin 2>/dev/null |
+                             sed -n 's/.*HEAD branch: //p' | head -1)
+    [ -z "$BASE" ] || BASE="origin/${BASE#origin/}"
+    [ -n "$BASE" ] || { echo "setup-review: cannot determine the default branch;" \
+                             "pass it explicitly: --pr $PR <base-ref>" >&2; exit 1; }
+  fi
 fi
 
 BASE_SHA=$(git rev-parse --verify "$BASE")
@@ -71,6 +84,11 @@ pr   worktree : $WORK/pr     ($HEAD_SHA)
 outputs       : $OUT
 
 Files: $OUT/full.diff, changes.txt, files.json, commits.txt
+
+The worktrees live on the host under <outdir>/.work, so they are still there
+after the container exits:
+
+  pr-review <repo> <base> <head> -o <out> -- bash        # same two worktrees
 
 Next:
   1. read full.diff; run things in $WORK/pr and $WORK/base

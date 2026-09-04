@@ -19,6 +19,11 @@ ENV PR_REVIEW_HOME=/opt/pr-review \
     PATH=/opt/pr-review/scripts:$PATH \
     HOME=/home/reviewer
 
+# /work is normally a bind mount from the host (see bin/pr-review) and the
+# container runs as an arbitrary host uid, so the mountpoint itself must be
+# writable by whoever that turns out to be.
+RUN mkdir -p /work && chmod 1777 /work
+
 USER reviewer
 WORKDIR /work
 ENTRYPOINT ["/opt/pr-review/scripts/entrypoint.sh"]

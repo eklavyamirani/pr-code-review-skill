@@ -1,23 +1,25 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+# Remove the worktrees a review left behind.
+#
+#   cleanup-review.sh <outdir> [--all]
+#
+# A review leaves <outdir>/.work: a --shared clone plus the base and pr
+# worktrees, kept so that a later `pr-review ... -- cmd` finds them. That is
+# the only state on disk; the container itself is --rm and /repo was mounted
+# read-only. --all removes the whole output directory, review page included.
+set -euo pipefail
 
-REVIEW_DIR=$1
+OUT=${1:?usage: cleanup-review.sh <outdir> [--all]}
+[ -d "$OUT" ] || { echo "cleanup-review: no such directory: $OUT" >&2; exit 1; }
+OUT=$(cd "$OUT" && pwd)
 
-if [ -z "$REVIEW_DIR" ]; then
-    echo "Usage: cleanup-review.sh <review-dir>"
-    exit 1
+if [ "${2:-}" = "--all" ]; then
+  rm -rf "$OUT"
+  echo "removed $OUT"
+  exit 0
 fi
 
-if [ ! -d "$REVIEW_DIR" ]; then
-    echo "Error: Directory not found: $REVIEW_DIR"
-    exit 1
-fi
-
-# Remove worktrees
-git worktree remove --force "$REVIEW_DIR/base" 2>&1 || true
-git worktree remove --force "$REVIEW_DIR/pr" 2>&1 || true
-
-# Clean up directory
-rm -rf "$REVIEW_DIR"
-
-echo "Cleaned up: $REVIEW_DIR"
+# The worktrees only ever point at the throwaway clone in the same directory,
+# so there is no host repository to deregister them from.
+rm -rf "$OUT/.work"
+echo "removed $OUT/.work — review.json and review.html kept"
