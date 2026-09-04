@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Host-side wrapper. The only thing that runs outside the container is docker
+# itself: the repo goes in read-only, the review artefacts come out via -v.
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage: pr-review <repo-path> (--pr N | <base-ref> <head-ref>) [-o outdir] [-- cmd...]
+
+  --pr N            fetch refs/pull/N/head from the repo's own origin
+  -o outdir         where review.json / review.html land   (default ./.pr-review)
+  -- cmd...         run a command inside the container instead of the default
+                    setup (e.g. -- trace-review.py --cmd 'zsh -lc true')
+
+env:
+  PR_REVIEW_IMAGE    image tag                    (default pr-review:local)
+  PR_REVIEW_NETWORK  docker network for the run   (default none; use "bridge"
+                     when --pr needs to reach the remote, or when a traced
+                     command must install something)
+EOF
+  exit 2
+}
+
+[ $# -ge 2 ] || usage
+REPO=$(cd "$1" && pwd); shift
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+IMAGE=${PR_REVIEW_IMAGE:-pr-review:local}
+NET=${PR_REVIEW_NETWORK:-none}
+OUT="$PWD/.pr-review"
+ARGS=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) OUT=$2; shift 2 ;;
+    --) shift; ARGS=("$@"); break ;;
+    *)  ARGS+=("$1"); shift ;;
+  esac
+done
+
+# --pr needs to talk to the remote; refuse silently-broken runs up front.
+if [[ " ${ARGS[*]-} " == *" --pr "* && "$NET" == none ]]; then
+  echo "pr-review: --pr needs network; re-run with PR_REVIEW_NETWORK=bridge" >&2
+  exit 1
+fi
+
+mkdir -p "$OUT"
+OUT=$(cd "$OUT" && pwd)
+
+docker image inspect "$IMAGE" >/dev/null 2>&1 || {
+  echo "pr-review: building $IMAGE" >&2
+  docker build -q -t "$IMAGE" "$HERE" >/dev/null
+}
+
+exec docker run --rm -i ${TERM:+-t} \
+  --network "$NET" \
+  --security-opt no-new-privileges \
+  --user "$(id -u):$(id -g)" \
+  -v "$REPO:/repo:ro" \
+  -v "$OUT:/out" \
+  "$IMAGE" "${ARGS[@]}"

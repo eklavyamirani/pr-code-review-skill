@@ -1,0 +1,604 @@
+{
+  "repo": "eklavyamirani/dotfiles",
+  "pr": 6,
+  "name": "Mise Migration Walkthrough",
+  "title": "Pin CLI tools with mise instead of Homebrew",
+  "subtitle": "Commit <code>945f6d7</code>, 8 files. Docs excluded — the three files below are where behaviour changes. Hunks are ordered by <em>when the machine runs them</em>, not alphabetically: brew bundle, then mise install, then every login shell.",
+  "hunks": [
+    {
+      "file": "dev/Brewfile",
+      "stage": "1 · brew bundle",
+      "title": "What Homebrew is still allowed to own",
+      "prose": "Homebrew's job shrinks to four things it is the only one able to do: <em>bootstrap</em> (stow and mise itself — something has to run before mise exists), tools mise has no backend for, docker's CLI plugins, and GUI casks. Eight formulae that used to live here are deleted; they reappear as pins in the mise config two hunks from now.",
+      "annotated": [
+        "Deletes <code>git, gh, fzf, ripgrep, tree, tmux, neovim, tree-sitter, tree-sitter-cli</code> from their old sections.",
+        "Re-adds <code>git, tree, hf, audio-cpp</code> under a new \"No mise backend\" heading — same formulae, new justification.",
+        "Keeps <code>stow</code> and <code>mise</code> as the bootstrap pair. mise's own version stays unpinned by construction.",
+        "Net: <code>gh, fzf, ripgrep, tmux, neovim, tree-sitter</code> leave Homebrew entirely."
+      ],
+      "diff": [
+        {
+          "k": "del",
+          "t": "-# ---- CLI essentials ----"
+        },
+        {
+          "k": "del",
+          "t": "-brew \"git\"          # likely newer than the system git"
+        },
+        {
+          "k": "del",
+          "t": "-brew \"gh\"           # GitHub CLI"
+        },
+        {
+          "k": "del",
+          "t": "-brew \"fzf\"          # fuzzy finder"
+        },
+        {
+          "k": "del",
+          "t": "-brew \"ripgrep\"      # fast recursive grep"
+        },
+        {
+          "k": "del",
+          "t": "-brew \"stow\"         # dotfiles symlink management"
+        },
+        {
+          "k": "del",
+          "t": "-brew \"mise\"         # per-project language/tool version manager"
+        },
+        {
+          "k": "del",
+          "t": "-brew \"tree\"         # directory tree listing"
+        },
+        {
+          "k": "del",
+          "t": "-brew \"tmux\""
+        },
+        {
+          "k": "del",
+          "t": "-brew \"neovim\""
+        },
+        {
+          "k": "del",
+          "t": "-brew \"tree-sitter\"      # neovim dependency, kept explicit"
+        },
+        {
+          "k": "del",
+          "t": "-brew \"tree-sitter-cli\"  # :TSInstall grammar compilation"
+        },
+        {
+          "k": "ctx",
+          "t": ""
+        },
+        {
+          "k": "add",
+          "t": "+# ---- Bootstrap dependencies ----"
+        },
+        {
+          "k": "add",
+          "t": "+# stow links this package into $HOME (so it must exist before the mise"
+        },
+        {
+          "k": "add",
+          "t": "+# config does), and mise installs everything in config.toml. mise itself is"
+        },
+        {
+          "k": "add",
+          "t": "+# therefore the one tool whose version nothing pins -- documented in README."
+        },
+        {
+          "k": "add",
+          "t": "+brew \"stow\""
+        },
+        {
+          "k": "add",
+          "t": "+brew \"mise\""
+        },
+        {
+          "k": "ctx",
+          "t": ""
+        },
+        {
+          "k": "add",
+          "t": "+# ---- No mise backend (still unpinned; that gap is deliberate and visible) ----"
+        },
+        {
+          "k": "add",
+          "t": "+brew \"git\"                         # not in mise's registry (only git-* helpers)"
+        },
+        {
+          "k": "add",
+          "t": "+brew \"tree\"                        # not in mise's registry"
+        },
+        {
+          "k": "add",
+          "t": "+brew \"hf\"                          # HuggingFace hub client (pulls in python@3.14)"
+        },
+        {
+          "k": "add",
+          "t": "+brew \"0xshug0/audio-cpp/audio-cpp\" # C++ audio inference engine powered by ggml"
+        }
+      ],
+      "glosses": [
+        {
+          "m": "brew \"stow\"",
+          "t": "GNU stow",
+          "b": "Symlink farm manager. Creates links from a package directory into a target (here $HOME), which is how dev/.config/mise/config.toml becomes ~/.config/mise/config.toml."
+        },
+        {
+          "m": "0xshug0/audio-cpp/audio-cpp",
+          "t": "tap-qualified formula",
+          "b": "Three-part name: user/repo/formula. Required when the formula comes from a third-party tap rather than homebrew-core."
+        }
+      ],
+      "probe": {
+        "q": "Two formulae here are load-bearing for the whole scheme. Which two, and what happens on a fresh machine if either is missing?",
+        "verdict": "ok",
+        "label": "holds up",
+        "answer": "<code>stow</code> and <code>mise</code>. The ordering claim in the comment is real and correct: stow links <code>dev/.config/mise/config.toml</code> into <code>$HOME</code>, so it must run before <code>mise install</code> has anything to read. The circularity is acknowledged rather than hidden — mise's own version is the one unpinned thing, which is the honest answer since a pinner cannot pin itself.<br><br>Worth carrying forward: <code>git</code> stays on Homebrew, and Homebrew here lives in <code>~/.homebrew</code>. Remember that at hunk 6."
+      }
+    },
+    {
+      "file": "dev/Brewfile",
+      "stage": "1 · brew bundle",
+      "title": "docker split across two managers",
+      "prose": "The docker <em>client</em> moves to mise; <em>buildx</em> and <em>compose</em> stay on Homebrew, because they are not tools on <code>PATH</code> but plugins loaded from <code>~/.docker/cli-plugins</code>, which a separate script symlinks out of the Homebrew prefix.",
+      "annotated": [
+        "<code>brew \"colima\"</code> and <code>brew \"docker\"</code> removed — both become mise pins.",
+        "<code>docker-buildx</code> / <code>docker-compose</code> stay, with a comment explaining plugin resolution.",
+        "The comment concedes <code>docker-compose</code> <em>does</em> have a mise backend, and declines to move it to avoid teaching <code>link-docker-cli-plugins</code> a second source directory.",
+        "The old \"Model tooling\" section is folded into the no-backend section above."
+      ],
+      "diff": [
+        {
+          "k": "del",
+          "t": "-# ---- Containers (optional; comment out if unneeded) ----"
+        },
+        {
+          "k": "del",
+          "t": "-brew \"colima\""
+        },
+        {
+          "k": "del",
+          "t": "-brew \"docker\""
+        },
+        {
+          "k": "ctx",
+          "t": " brew \"docker-buildx\""
+        },
+        {
+          "k": "ctx",
+          "t": " brew \"docker-compose\""
+        },
+        {
+          "k": "ctx",
+          "t": ""
+        },
+        {
+          "k": "add",
+          "t": "+# ---- Containers ----"
+        },
+        {
+          "k": "add",
+          "t": "+# The docker *client* is pinned in mise. These two are not tools on PATH but"
+        },
+        {
+          "k": "add",
+          "t": "+# docker CLI plugins: `docker buildx` / `docker compose` resolve from"
+        },
+        {
+          "k": "add",
+          "t": "+# ~/.docker/cli-plugins, which dev/.local/bin/link-docker-cli-plugins fills"
+        },
+        {
+          "k": "add",
+          "t": "+# from this Homebrew prefix. docker-compose does have a mise backend, but"
+        },
+        {
+          "k": "add",
+          "t": "+# moving it would leave `docker compose` broken unless that script learned a"
+        },
+        {
+          "k": "add",
+          "t": "+# second source directory -- not worth the coupling for one formula."
+        },
+        {
+          "k": "add",
+          "t": "+# docker-buildx has no mise backend at all."
+        }
+      ],
+      "glosses": [
+        {
+          "m": "~/.docker/cli-plugins",
+          "t": "docker plugin lookup",
+          "b": "Directory the docker client scans for `docker-<name>` executables, exposing each as a `docker <name>` subcommand. Not on PATH and not resolved through it."
+        }
+      ],
+      "probe": {
+        "q": "The docker client is now version-pinned and its plugins are not. What class of failure does that introduce that did not exist when both came from brew?",
+        "verdict": "think",
+        "label": "design question",
+        "answer": "Version skew between client and plugins. Before, <code>brew bundle</code> upgraded <code>docker</code>, <code>docker-buildx</code> and <code>docker-compose</code> together, so they moved in lockstep. Now the client is frozen at <code>29.7.2</code> while the plugins float on whatever Homebrew has today. Docker's CLI-plugin API is stable in practice, so this is unlikely to bite soon — but the reproducibility claim in the README is weaker than it reads: <code>docker</code> is pinned, <code>docker compose</code> is not.<br><br>Not a blocker. Worth one line in the README's \"remaining unpinned\" list, which names the plugins but not skew as the risk."
+      }
+    },
+    {
+      "file": "dev/.config/mise/config.toml",
+      "stage": "2 · mise install",
+      "title": "The pins themselves",
+      "prose": "The receiving end. Eight CLI tools arrive with <em>exact</em> versions — no ranges, no <code>latest</code> — alongside the python runtime that was already here. This table is now the thing that determines what your shell resolves to.",
+      "annotated": [
+        "New <code>CLI tools</code> section: 8 entries, each an exact version string.",
+        "Registry names differ from command names, hence the trailing comments: <code>github-cli</code>→<code>gh</code>, <code>ripgrep</code>→<code>rg</code>, <code>neovim</code>→<code>nvim</code>, <code>docker-cli</code>→<code>docker</code>.",
+        "<code>docker-cli</code> is deliberately the client-only backend, matching the plugin split left behind in the Brewfile.",
+        "The existing <code>python = \"3.12.14\"</code> is unchanged, just relabelled under a \"Language runtimes\" heading."
+      ],
+      "diff": [
+        {
+          "k": "ctx",
+          "t": " [tools]"
+        },
+        {
+          "k": "del",
+          "t": "-python = \"3.12.14\""
+        },
+        {
+          "k": "add",
+          "t": "+# ---- CLI tools (moved off Homebrew; see issue #4) ----"
+        },
+        {
+          "k": "add",
+          "t": "+github-cli   = \"2.99.0\"   # gh"
+        },
+        {
+          "k": "add",
+          "t": "+fzf          = \"0.74.3\""
+        },
+        {
+          "k": "add",
+          "t": "+ripgrep      = \"15.2.0\"   # rg"
+        },
+        {
+          "k": "add",
+          "t": "+tmux         = \"3.7c\""
+        },
+        {
+          "k": "add",
+          "t": "+neovim       = \"0.12.5\"   # nvim"
+        },
+        {
+          "k": "add",
+          "t": "+tree-sitter  = \"0.27.0\"   # the CLI; :TSInstall compiles grammars with it"
+        },
+        {
+          "k": "add",
+          "t": "+colima       = \"0.10.3\""
+        },
+        {
+          "k": "add",
+          "t": "+docker-cli   = \"29.7.2\"   # the `docker` client only -- plugins stay in Brewfile"
+        },
+        {
+          "k": "ctx",
+          "t": ""
+        },
+        {
+          "k": "add",
+          "t": "+# ---- Language runtimes ----"
+        },
+        {
+          "k": "add",
+          "t": "+python       = \"3.12.14\""
+        }
+      ],
+      "glosses": [
+        {
+          "m": "github-cli",
+          "t": "registry name ≠ command name",
+          "b": "mise's registry key. The binary it puts on PATH is `gh`. Getting this key wrong fails at install time, not at use time — a cheap failure."
+        },
+        {
+          "m": "\"3.7c\"",
+          "t": "exact version string",
+          "b": "No range operator, so mise resolves this to precisely one upstream tag. If the tag does not exist, install fails hard rather than picking something near it."
+        }
+      ],
+      "tape": {
+        "label": "verified against upstream release tags — run 2026-09-04",
+        "disc": "Actually fetched from each project's GitHub releases API. Don't reason about whether a version string is plausible; go look.",
+        "rows": [
+          [
+            "fzf 0.74.3",
+            "<ins>exists</ins> — matches latest tag v0.74.3"
+          ],
+          [
+            "ripgrep 15.2.0",
+            "<ins>exists</ins> — matches latest tag 15.2.0"
+          ],
+          [
+            "neovim 0.12.5",
+            "<ins>exists</ins> — matches latest tag v0.12.5"
+          ],
+          [
+            "tree-sitter 0.27.0",
+            "<ins>exists</ins> — matches latest tag v0.27.0"
+          ],
+          [
+            "colima 0.10.3",
+            "<ins>exists</ins> — matches latest tag v0.10.3"
+          ],
+          [
+            "github-cli 2.99.0",
+            "<ins>exists</ins> — one behind latest (v2.100.0). Fine; a pin is allowed to lag."
+          ],
+          [
+            "tmux 3.7c",
+            "<del>no such tag</del> — latest tmux release is <b>3.7b</b> (2026-07-01)"
+          ]
+        ]
+      },
+      "probe": {
+        "q": "Eight exact version strings, written by a model. One of them is not a real release. Which one — and when would you find out?",
+        "verdict": "bug",
+        "label": "real bug",
+        "answer": "<code>tmux = \"3.7c\"</code>. Upstream's latest is <b>3.7b</b>; there is no 3.7c. Because the pin is exact with no fallback, <code>mise install</code> fails outright — so this breaks the very first <code>./reapply.sh</code> on a clean machine, i.e. exactly the fresh-apply path this PR exists to make reliable.<br><br>The archetypal LLM-authored defect: format perfect, semantics invented, invisible to careful reading because <code>3.7c</code> looks exactly as plausible as <code>3.7b</code>. No amount of focus catches it. A four-line CI check does:<br><br><code>mise install --dry-run || exit 1</code>"
+      }
+    },
+    {
+      "file": "dev/.zprofile.d/55-mise.zsh",
+      "stage": "3 · every login shell",
+      "title": "activate, and the precedence claim",
+      "prose": "Runs on every login shell, after Homebrew's own snippet at <code>50-</code>. The existing <code>mise activate</code> line is untouched; what's new is a comment asserting <em>why</em> the ordering matters — that activate prepends, so pinned tools beat leftover brew formulae of the same name.",
+      "annotated": [
+        "No executable change in this hunk — comment only.",
+        "The claim: <code>mise activate</code> prepends the active tool paths, so <code>~/.local/share/mise/installs/…</code> lands ahead of <code>~/.homebrew/bin</code>.",
+        "This is the load-bearing assumption for the migration: it is what makes an un-uninstalled brew <code>nvim</code> harmless."
+      ],
+      "diff": [
+        {
+          "k": "del",
+          "t": "-# mise: per-project language/tool version manager. Installs entirely in"
+        },
+        {
+          "k": "del",
+          "t": "-# userspace (~/.local/share/mise) — no sudo required either way."
+        },
+        {
+          "k": "add",
+          "t": "+# mise: version manager for this account's CLI tools and language runtimes."
+        },
+        {
+          "k": "add",
+          "t": "+# Installs entirely in userspace (~/.local/share/mise) -- no sudo either way."
+        },
+        {
+          "k": "ctx",
+          "t": " #"
+        },
+        {
+          "k": "ctx",
+          "t": " # Numbered after 50-homebrew-isolated.zsh on purpose: mise is installed via"
+        },
+        {
+          "k": "ctx",
+          "t": " # Homebrew (see Brewfile), so ~/.homebrew/bin must already be on PATH here."
+        },
+        {
+          "k": "add",
+          "t": "+# Being *after* it also matters for precedence -- `mise activate` prepends"
+        },
+        {
+          "k": "add",
+          "t": "+# the active tool paths, so a pinned nvim/gh/rg wins over a brew formula of"
+        },
+        {
+          "k": "add",
+          "t": "+# the same name that happens to still be installed."
+        },
+        {
+          "k": "ctx",
+          "t": " eval \"$(mise activate zsh)\""
+        }
+      ],
+      "glosses": [
+        {
+          "m": "mise activate zsh",
+          "t": "shell hook, not a wrapper",
+          "b": "Emits zsh code that prepends the active tools' bin directories to PATH and installs a precmd hook to re-resolve them when you cd into a directory with its own .mise.toml. Only affects shells that eval it."
+        }
+      ],
+      "tape": {
+        "label": "PATH, before and after this line",
+        "disc": "Illustrative shape — mise is not installed on the account I could reach, so this was not captured by trace-review.py. The ordering is what matters.",
+        "rows": [
+          [
+            "before",
+            "/Users/dev/.local/bin:<b>/Users/dev/.homebrew/bin</b>:/usr/bin:/bin"
+          ],
+          [
+            "after",
+            "<ins>/Users/dev/.local/share/mise/installs/neovim/0.12.5/bin</ins>:…:<b>/Users/dev/.homebrew/bin</b>:/usr/bin:/bin"
+          ],
+          [
+            "which -a nvim",
+            "<ins>~/.local/share/mise/installs/…</ins>, then possibly ~/.homebrew/bin/nvim"
+          ]
+        ]
+      },
+      "probe": {
+        "q": "The comment says ordering after 50-homebrew gives mise precedence. Is the ordering of these two files actually what determines precedence?",
+        "verdict": "think",
+        "label": "comment is misleading",
+        "answer": "Not really. <code>mise activate</code> <em>prepends</em>, so it wins regardless of whether it ran before or after the Homebrew snippet — prepending always beats an earlier prepend. The file ordering matters for a different, real reason, which the original comment already stated: <code>mise</code> is a brew-installed binary, so <code>~/.homebrew/bin</code> must be on PATH for <code>mise activate</code> to be runnable at all.<br><br>The new sentence conflates \"must run after, to exist\" with \"must run after, to win\". Harmless today, but it is the kind of comment that gets cited later to justify a wrong change."
+      }
+    },
+    {
+      "file": "dev/.zprofile.d/55-mise.zsh",
+      "stage": "3 · every login shell",
+      "title": "Shims appended as a fallback",
+      "prose": "New block. Appends mise's <code>shims</code> directory to the end of <code>PATH</code>, deliberately not the front, so <code>activate</code> keeps priority. The stated purpose is to give <em>non-interactive</em> processes — a GUI launcher, a LaunchAgent — access to the pinned tools.",
+      "annotated": [
+        "Guarded on the shims directory existing, so a machine where <code>mise install</code> hasn't run yet is unaffected.",
+        "<code>export PATH=\"$PATH:…\"</code> — append, so anything already on PATH shadows the shims. Intentional per the comment.",
+        "Rationale given: processes started outside a shell that sources this file would otherwise see none of the pinned tools."
+      ],
+      "diff": [
+        {
+          "k": "add",
+          "t": "+# Shims as a fallback, appended (not prepended) so activate keeps priority."
+        },
+        {
+          "k": "add",
+          "t": "+# `mise activate` only rewrites PATH inside shells that source this file; a"
+        },
+        {
+          "k": "add",
+          "t": "+# process started outside one -- a GUI launcher, a LaunchAgent -- would"
+        },
+        {
+          "k": "add",
+          "t": "+# otherwise see none of the pinned tools."
+        },
+        {
+          "k": "add",
+          "t": "+if [[ -d \"$HOME/.local/share/mise/shims\" ]]; then"
+        },
+        {
+          "k": "add",
+          "t": "+  export PATH=\"$PATH:$HOME/.local/share/mise/shims\""
+        },
+        {
+          "k": "add",
+          "t": "+fi"
+        }
+      ],
+      "glosses": [
+        {
+          "m": "$PATH:$HOME/.local/share/mise/shims",
+          "t": "append, not prepend",
+          "b": "$PATH comes first, so every directory already on PATH — including ~/.homebrew/bin — shadows the shims. They only take effect for a command that exists nowhere else."
+        },
+        {
+          "m": "shims",
+          "t": "dispatch stubs",
+          "b": "Small executables named after each managed tool that re-exec the version mise resolves for the current directory. The alternative to rewriting PATH; works in processes that never ran `mise activate`."
+        }
+      ],
+      "probe": {
+        "q": "Read the justification, then the code. Does this block actually deliver what the comment promises?",
+        "verdict": "bug",
+        "label": "rationale doesn't hold",
+        "answer": "No. The comment's whole premise is that this helps processes started <em>outside</em> a shell that sources this file — but such a process never sources this file, so the <code>export</code> never runs for it. On macOS, GUI apps launched from Finder or Dock inherit launchd's environment, not <code>.zprofile</code>. The block only ever executes inside exactly the shells that already ran <code>mise activate</code> one line above.<br><br>Where it does have an effect, it is the opposite of useful: appending puts the shims <em>behind</em> <code>~/.homebrew/bin</code>, so for any tool present in both places the shim is dead code.<br><br>The real fix for the GUI case is <code>launchctl config user path</code> or a LaunchAgent, not a login-shell export. Either drop the block or correct the comment — as written, a future reader will trust a guarantee that isn't there."
+      }
+    },
+    {
+      "file": "dev/.zprofile.d/55-mise.zsh",
+      "stage": "3 · every login shell",
+      "title": "The precedence tripwire",
+      "prose": "The safety net: on every login, check that a few pinned tools actually resolve to the pinned copy, and print a yellow warning if one is being shadowed. Warn-only by design — a tool that simply isn't installed yet shouldn't be an error.",
+      "annotated": [
+        "Loops over <code>nvim rg gh tmux</code> — four of the eight pinned tools.",
+        "<code>whence -p</code> does a PATH-only lookup, skipping aliases and functions. Correct choice for this check.",
+        "<code>|| continue</code> skips tools that aren't installed, honouring the warn-only intent.",
+        "The test for \"shadowed\": the resolved path does <b>not</b> start with <code>$HOME</code>.",
+        "Function is defined and invoked immediately, so it runs on every login."
+      ],
+      "diff": [
+        {
+          "k": "add",
+          "t": "+# --- mise precedence tripwire ---"
+        },
+        {
+          "k": "add",
+          "t": "+# ... checks that tools this account pins actually resolve to the pinned"
+        },
+        {
+          "k": "add",
+          "t": "+# copy, rather than to /usr/bin. Warns only."
+        },
+        {
+          "k": "add",
+          "t": "+_mise_precedence_check() {"
+        },
+        {
+          "k": "add",
+          "t": "+  local tool resolved"
+        },
+        {
+          "k": "add",
+          "t": "+  for tool in nvim rg gh tmux; do"
+        },
+        {
+          "k": "add",
+          "t": "+    resolved=\"$(whence -p \"$tool\" 2>/dev/null)\" || continue"
+        },
+        {
+          "k": "add",
+          "t": "+    [[ -n \"$resolved\" ]] || continue"
+        },
+        {
+          "k": "add",
+          "t": "+    if [[ \"$resolved\" != \"$HOME\"/* ]]; then"
+        },
+        {
+          "k": "add",
+          "t": "+      print -P \"%F{yellow}⚠ WARNING: '$tool' resolves to $resolved, outside \\$HOME%f\""
+        },
+        {
+          "k": "add",
+          "t": "+    fi"
+        },
+        {
+          "k": "add",
+          "t": "+  done"
+        },
+        {
+          "k": "add",
+          "t": "+}"
+        },
+        {
+          "k": "add",
+          "t": "+_mise_precedence_check"
+        }
+      ],
+      "glosses": [
+        {
+          "m": "whence -p",
+          "t": "zsh builtin",
+          "b": "Like `command -v` but PATH-only: ignores aliases, functions and builtins, so it reports the file that would actually be executed. The right primitive here."
+        },
+        {
+          "m": "\"$HOME\"/*",
+          "t": "glob, unquoted RHS",
+          "b": "Inside [[ ]] an unquoted right-hand side is a pattern, not a literal — so this is a prefix match on $HOME, not a string comparison. Intentional and correct zsh."
+        }
+      ],
+      "tape": {
+        "label": "what the guard returns for each plausible resolution",
+        "disc": "Hand-traced against the paths this account produces — mise isn't installed on the machine I could reach. The point is which rows stay silent.",
+        "rows": [
+          [
+            "/usr/bin/tmux",
+            "<ins>WARNS</ins> — outside $HOME"
+          ],
+          [
+            "/usr/local/bin/nvim",
+            "<ins>WARNS</ins> — outside $HOME"
+          ],
+          [
+            "~/.local/share/mise/installs/neovim/0.12.5/bin/nvim",
+            "silent — correct, this is the pinned copy"
+          ],
+          [
+            "~/.homebrew/bin/gh",
+            "<del>SILENT</del> — but this is a shadowing brew binary"
+          ]
+        ]
+      },
+      "probe": {
+        "q": "Recall where this account's Homebrew lives. Now re-read the shadowing test. What does it miss?",
+        "verdict": "bug",
+        "label": "real bug",
+        "answer": "The guard is <code>\"$resolved\" != \"$HOME\"/*</code> — it fires only when a tool resolves <em>outside</em> your home directory. But this account's Homebrew prefix is <code>~/.homebrew</code>, which is inside <code>$HOME</code>. So a leftover <code>~/.homebrew/bin/gh</code> shadowing the pinned <code>gh</code> passes the check silently.<br><br>That is precisely the failure this PR is about. Every tool it just moved off Homebrew may still have a brew copy in <code>~/.homebrew/bin</code>, and the tripwire built to catch that is blind to it. It catches only <code>/usr/bin</code>, where none of <code>nvim/rg/gh/tmux</code> ship.<br><br>Test against the mise install root instead:<br><br><code>[[ \"$resolved\" != \"$HOME/.local/share/mise/\"* ]]</code><br><br>Also: the loop covers 4 of 8 pinned tools. <code>docker</code> is unchecked and is the likeliest to have a stray copy."
+      }
+    }
+  ]
+}
